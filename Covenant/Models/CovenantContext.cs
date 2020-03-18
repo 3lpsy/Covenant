@@ -106,6 +106,15 @@ namespace Covenant.Models
                 .WithOne(CO => CO.GruntCommand)
                 .HasForeignKey<GruntCommand>(GC => GC.CommandOutputId);
 
+            builder.Entity<ListenerTypeImplantTemplate>()
+                .HasKey(ltit => new { ltit.ListenerTypeId, ltit.ImplantTemplateId });
+            builder.Entity<ListenerTypeImplantTemplate>()
+                .HasOne(ltit => ltit.ImplantTemplate)
+                .WithMany("ListenerTypeImplantTemplates");
+            builder.Entity<ListenerTypeImplantTemplate>()
+                .HasOne(ltit => ltit.ListenerType)
+                .WithMany("ListenerTypeImplantTemplates");
+
             builder.Entity<ReferenceSourceLibraryReferenceAssembly>()
                 .HasKey(t => new { t.ReferenceSourceLibraryId, t.ReferenceAssemblyId });
             builder.Entity<ReferenceSourceLibraryReferenceAssembly>()
@@ -600,15 +609,18 @@ namespace Covenant.Models
         #endregion
 
         #region ImplantTemplate Actions
-
         public async Task<IEnumerable<ImplantTemplate>> GetImplantTemplates()
         {
-            return await this.ImplantTemplates.ToListAsync();
+            return await this.ImplantTemplates
+                .Include("ListenerTypeImplantTemplates.ListenerType")
+                .ToListAsync();
         }
 
         public async Task<ImplantTemplate> GetImplantTemplate(int id)
         {
-            ImplantTemplate template = await this.ImplantTemplates.FindAsync(id);
+            ImplantTemplate template = await this.ImplantTemplates
+                .Include("ListenerTypeImplantTemplates.ListenerType")
+                .FirstOrDefaultAsync(IT => IT.Id == id);
             if (template == null)
             {
                 throw new ControllerNotFoundException($"NotFound - ImplantTemplate with id: {id}");
@@ -619,8 +631,8 @@ namespace Covenant.Models
         public async Task<ImplantTemplate> GetImplantTemplateByName(string name)
         {
             ImplantTemplate template = await this.ImplantTemplates
-                .Where(IT => IT.Name == name)
-                .FirstOrDefaultAsync();
+                .Include("ListenerTypeImplantTemplates.ListenerType")
+                .FirstOrDefaultAsync(IT => IT.Name == name);
             if (template == null)
             {
                 throw new ControllerNotFoundException($"NotFound - ImplantTemplate with Name: {name}");
@@ -641,6 +653,7 @@ namespace Covenant.Models
             matchingTemplate.Name = template.Name;
             matchingTemplate.Description = template.Description;
             matchingTemplate.Language = template.Language;
+            matchingTemplate.ImplantDirection = template.ImplantDirection;
             matchingTemplate.StagerCode = template.StagerCode;
             matchingTemplate.ExecutorCode = template.ExecutorCode;
 
@@ -663,18 +676,21 @@ namespace Covenant.Models
             List<Grunt> grunts = await this.Grunts.Include(G => G.ImplantTemplate).ToListAsync();
             grunts.ForEach(async G =>
             {
-                bool lost = await this.IsGruntLost(G);
-                if (G.Status == GruntStatus.Active && lost)
+                if (G.Status == GruntStatus.Active || G.Status == GruntStatus.Lost)
                 {
-                    G.Status = GruntStatus.Lost;
-                    this.Grunts.Update(G);
-                    this.SaveChanges();
-                }
-                else if (G.Status == GruntStatus.Lost && !lost)
-                {
-                    G.Status = GruntStatus.Active;
-                    this.Grunts.Update(G);
-                    this.SaveChanges();
+                    bool lost = await this.IsGruntLost(G);
+                    if (G.Status == GruntStatus.Active && lost)
+                    {
+                        G.Status = GruntStatus.Lost;
+                        this.Grunts.Update(G);
+                        this.SaveChanges();
+                    }
+                    else if (G.Status == GruntStatus.Lost && !lost)
+                    {
+                        G.Status = GruntStatus.Active;
+                        this.Grunts.Update(G);
+                        this.SaveChanges();
+                    }
                 }
             });
             return await this.Grunts.ToListAsync();
@@ -687,18 +703,21 @@ namespace Covenant.Models
             {
                 throw new ControllerNotFoundException($"NotFound - Grunt with id: {gruntId}");
             }
-            bool lost = await this.IsGruntLost(grunt);
-            if (grunt.Status == GruntStatus.Active && lost)
+            if (grunt.Status == GruntStatus.Active || grunt.Status == GruntStatus.Lost)
             {
-                grunt.Status = GruntStatus.Lost;
-                this.Grunts.Update(grunt);
-                this.SaveChanges();
-            }
-            else if (grunt.Status == GruntStatus.Lost && !lost)
-            {
-                grunt.Status = GruntStatus.Active;
-                this.Grunts.Update(grunt);
-                this.SaveChanges();
+                bool lost = await this.IsGruntLost(grunt);
+                if (grunt.Status == GruntStatus.Active && lost)
+                {
+                    grunt.Status = GruntStatus.Lost;
+                    this.Grunts.Update(grunt);
+                    this.SaveChanges();
+                }
+                else if (grunt.Status == GruntStatus.Lost && !lost)
+                {
+                    grunt.Status = GruntStatus.Active;
+                    this.Grunts.Update(grunt);
+                    this.SaveChanges();
+                }
             }
             return grunt;
         }
@@ -710,18 +729,21 @@ namespace Covenant.Models
             {
                 throw new ControllerNotFoundException($"NotFound - Grunt with name: {name}");
             }
-            bool lost = await this.IsGruntLost(grunt);
-            if (grunt.Status == GruntStatus.Active && lost)
+            if (grunt.Status == GruntStatus.Active || grunt.Status == GruntStatus.Lost)
             {
-                grunt.Status = GruntStatus.Lost;
-                this.Grunts.Update(grunt);
-                this.SaveChanges();
-            }
-            else if (grunt.Status == GruntStatus.Lost && !lost)
-            {
-                grunt.Status = GruntStatus.Active;
-                this.Grunts.Update(grunt);
-                this.SaveChanges();
+                bool lost = await this.IsGruntLost(grunt);
+                if (grunt.Status == GruntStatus.Active && lost)
+                {
+                    grunt.Status = GruntStatus.Lost;
+                    this.Grunts.Update(grunt);
+                    this.SaveChanges();
+                }
+                else if (grunt.Status == GruntStatus.Lost && !lost)
+                {
+                    grunt.Status = GruntStatus.Active;
+                    this.Grunts.Update(grunt);
+                    this.SaveChanges();
+                }
             }
             return grunt;
         }
@@ -733,18 +755,21 @@ namespace Covenant.Models
             {
                 throw new ControllerNotFoundException($"NotFound - Grunt with GUID: {guid}");
             }
-            bool lost = await this.IsGruntLost(grunt);
-            if (grunt.Status == GruntStatus.Active && lost)
+            if (grunt.Status == GruntStatus.Active || grunt.Status == GruntStatus.Lost)
             {
-                grunt.Status = GruntStatus.Lost;
-                this.Grunts.Update(grunt);
-                this.SaveChanges();
-            }
-            else if (grunt.Status == GruntStatus.Lost && !lost)
-            {
-                grunt.Status = GruntStatus.Active;
-                this.Grunts.Update(grunt);
-                this.SaveChanges();
+                bool lost = await this.IsGruntLost(grunt);
+                if (grunt.Status == GruntStatus.Active && lost)
+                {
+                    grunt.Status = GruntStatus.Lost;
+                    this.Grunts.Update(grunt);
+                    this.SaveChanges();
+                }
+                else if (grunt.Status == GruntStatus.Lost && !lost)
+                {
+                    grunt.Status = GruntStatus.Active;
+                    this.Grunts.Update(grunt);
+                    this.SaveChanges();
+                }
             }
             return grunt;
         }
@@ -756,18 +781,21 @@ namespace Covenant.Models
             {
                 throw new ControllerNotFoundException($"NotFound - Grunt with OriginalServerGUID: {serverguid}");
             }
-            bool lost = await this.IsGruntLost(grunt);
-            if (grunt.Status == GruntStatus.Active && lost)
+            if (grunt.Status == GruntStatus.Active || grunt.Status == GruntStatus.Lost)
             {
-                grunt.Status = GruntStatus.Lost;
-                this.Grunts.Update(grunt);
-                this.SaveChanges();
-            }
-            else if (grunt.Status == GruntStatus.Lost && !lost)
-            {
-                grunt.Status = GruntStatus.Active;
-                this.Grunts.Update(grunt);
-                this.SaveChanges();
+                bool lost = await this.IsGruntLost(grunt);
+                if (grunt.Status == GruntStatus.Active && lost)
+                {
+                    grunt.Status = GruntStatus.Lost;
+                    this.Grunts.Update(grunt);
+                    this.SaveChanges();
+                }
+                else if (grunt.Status == GruntStatus.Lost && !lost)
+                {
+                    grunt.Status = GruntStatus.Active;
+                    this.Grunts.Update(grunt);
+                    this.SaveChanges();
+                }
             }
             return grunt;
         }
@@ -777,7 +805,7 @@ namespace Covenant.Models
             DateTime lostTime = g.LastCheckIn;
             int Drift = 10;
             lostTime = lostTime.AddSeconds(g.Delay + (g.Delay * (g.JitterPercent / 100.0)) + Drift);
-            if (g.ImplantTemplate.CommType != CommunicationType.SMB)
+            if (g.ImplantTemplate.ImplantDirection == ImplantDirection.Pull)
             {
                 return DateTime.UtcNow >= lostTime;
             }
@@ -806,10 +834,6 @@ namespace Covenant.Models
         public async Task<List<string>> GetPathToChildGrunt(int gruntId, int childId)
         {
             Grunt grunt = await this.GetGrunt(gruntId);
-            if (grunt == null)
-            {
-                throw new ControllerNotFoundException($"NotFound - Grunt with id: {gruntId}");
-            }
             List<string> path = new List<string>();
             bool found = GetPathToChildGrunt(gruntId, childId, ref path);
             if (!found)
@@ -820,6 +844,18 @@ namespace Covenant.Models
             path.Reverse();
             return path;
         }
+
+        public async Task<Grunt> GetOutboundGrunt(int gruntId)
+		{
+			Grunt grunt = await this.GetGrunt(gruntId);
+			Grunt parent = await this.Grunts.FirstOrDefaultAsync(G => G.Children.Contains(grunt.GUID));
+            while (parent != null)
+			{
+				grunt = parent;
+				parent = await this.Grunts.FirstOrDefaultAsync(G => G.Children.Contains(grunt.GUID));
+			}
+			return grunt;
+		}
 
         public async Task<Grunt> CreateGrunt(Grunt grunt)
         {
@@ -889,6 +925,8 @@ namespace Covenant.Models
                 {
                     GruntTask setTask = await this.GetGruntTaskByName("Set");
                     matching_grunt.ConnectAttempts = grunt.ConnectAttempts;
+                    setTask.Options[0].Value = "ConnectAttempts";
+                    setTask.Options[1].Value = grunt.ConnectAttempts.ToString();
                     GruntCommand createdGruntCommand = await this.CreateGruntCommand(new GruntCommand
                     {
                         Command = "Set ConnectAttempts " + grunt.ConnectAttempts.ToString(),
@@ -917,6 +955,8 @@ namespace Covenant.Models
                 {
                     GruntTask setTask = await this.GetGruntTaskByName("Set");
                     matching_grunt.Delay = grunt.Delay;
+                    setTask.Options[0].Value = "Delay";
+                    setTask.Options[1].Value = grunt.Delay.ToString();
                     GruntCommand createdGruntCommand = await this.CreateGruntCommand(new GruntCommand
                     {
                         Command = "Set Delay " + grunt.Delay.ToString(),
@@ -945,6 +985,8 @@ namespace Covenant.Models
                 {
                     GruntTask setTask = await this.GetGruntTaskByName("Set");
                     matching_grunt.JitterPercent = grunt.JitterPercent;
+                    setTask.Options[0].Value = "JitterPercent";
+                    setTask.Options[1].Value = grunt.JitterPercent.ToString();
                     GruntCommand createdGruntCommand = await this.CreateGruntCommand(new GruntCommand
                     {
                         Command = "Set JitterPercent " + grunt.JitterPercent.ToString(),
@@ -1007,10 +1049,6 @@ namespace Covenant.Models
         public async Task DeleteGrunt(int gruntId)
         {
             Grunt grunt = await this.GetGrunt(gruntId);
-            if (grunt == null)
-            {
-                throw new ControllerNotFoundException($"NotFound - Grunt with id: {gruntId}");
-            }
             this.Grunts.Remove(grunt);
             await this.SaveChangesAsync();
         }
@@ -1038,7 +1076,7 @@ namespace Covenant.Models
             byte[] ILBytes = Compiler.Compile(new Compiler.CompilationRequest
             {
                 Language = template.Language,
-                Source = this.GruntTemplateReplace(CodeTemplate, grunt, listener, profile),
+                Source = this.GruntTemplateReplace(CodeTemplate, template, grunt, listener, profile),
                 TargetDotNetVersion = grunt.DotNetFrameworkVersion,
                 OutputKind = outputKind,
                 References = grunt.DotNetFrameworkVersion == Common.DotNetVersion.Net35 ? Common.DefaultNet35References : Common.DefaultNet40References
@@ -1054,39 +1092,58 @@ namespace Covenant.Models
             return ILBytes;
         }
 
-        private string GruntTemplateReplace(string CodeTemplate, Grunt grunt, Listener listener, Profile profile)
+        private string GruntTemplateReplace(string CodeTemplate, ImplantTemplate template, Grunt grunt, Listener listener, Profile profile)
         {
             switch (profile.Type)
             {
                 case ProfileType.HTTP:
                     HttpProfile httpProfile = (HttpProfile)profile;
                     HttpListener httpListener = (HttpListener)listener;
-                    return CodeTemplate
-                        .Replace("// {{REPLACE_PROFILE_MESSAGE_TRANSFORM}}", profile.MessageTransform)
-                        .Replace("{{REPLACE_PROFILE_HTTP_HEADER_NAMES}}", this.FormatForVerbatimString(string.Join(",", httpProfile.HttpRequestHeaders.Select(H => Convert.ToBase64String(Common.CovenantEncoding.GetBytes(H.Name.Replace("{GUID}", grunt.GUID)))))))
-                        .Replace("{{REPLACE_PROFILE_HTTP_HEADER_VALUES}}", this.FormatForVerbatimString(string.Join(",", httpProfile.HttpRequestHeaders.Select(H => Convert.ToBase64String(Common.CovenantEncoding.GetBytes(H.Value.Replace("{GUID}", grunt.GUID)))))))
-                        .Replace("{{REPLACE_PROFILE_HTTP_URLS}}", this.FormatForVerbatimString(string.Join(",", httpProfile.HttpUrls.Select(H => Convert.ToBase64String(Common.CovenantEncoding.GetBytes(H.Replace("{GUID}", grunt.GUID)))))))
-                        .Replace("{{REPLACE_PROFILE_HTTP_GET_RESPONSE}}", this.FormatForVerbatimString(httpProfile.HttpGetResponse))
-                        .Replace("{{REPLACE_PROFILE_HTTP_POST_REQUEST}}", this.FormatForVerbatimString(httpProfile.HttpPostRequest))
-                        .Replace("{{REPLACE_PROFILE_HTTP_POST_RESPONSE}}", this.FormatForVerbatimString(httpProfile.HttpPostResponse))
-                        .Replace("{{REPLACE_VALIDATE_CERT}}", grunt.ValidateCert ? "true" : "false")
-                        .Replace("{{REPLACE_USE_CERT_PINNING}}", grunt.UseCertPinning ? "true" : "false")
-                        .Replace("{{REPLACE_PIPE_NAME}}", grunt.SMBPipeName)
-                        .Replace("{{REPLACE_COVENANT_URIS}}", this.FormatForVerbatimString(string.Join(",", httpListener.Urls)))
-                        .Replace("{{REPLACE_COVENANT_CERT_HASH}}", this.FormatForVerbatimString(httpListener.UseSSL ? httpListener.SSLCertHash : ""))
-                        .Replace("{{REPLACE_GRUNT_GUID}}", this.FormatForVerbatimString(grunt.OriginalServerGuid))
-                        .Replace("{{REPLACE_DELAY}}", this.FormatForVerbatimString(grunt.Delay.ToString()))
-                        .Replace("{{REPLACE_JITTER_PERCENT}}", this.FormatForVerbatimString(grunt.JitterPercent.ToString()))
-                        .Replace("{{REPLACE_CONNECT_ATTEMPTS}}", this.FormatForVerbatimString(grunt.ConnectAttempts.ToString()))
-                        .Replace("{{REPLACE_KILL_DATE}}", this.FormatForVerbatimString(grunt.KillDate.ToBinary().ToString()))
-                        .Replace("{{REPLACE_GRUNT_SHARED_SECRET_PASSWORD}}", this.FormatForVerbatimString(grunt.GruntSharedSecretPassword));
+                    if (template.CommType == CommunicationType.HTTP)
+                    {
+                        return CodeTemplate
+                            .Replace("// {{REPLACE_PROFILE_MESSAGE_TRANSFORM}}", profile.MessageTransform)
+                            .Replace("{{REPLACE_PROFILE_HTTP_HEADER_NAMES}}", this.FormatForVerbatimString(string.Join(",", httpProfile.HttpRequestHeaders.Select(H => Convert.ToBase64String(Common.CovenantEncoding.GetBytes(H.Name))))))
+                            .Replace("{{REPLACE_PROFILE_HTTP_HEADER_VALUES}}", this.FormatForVerbatimString(string.Join(",", httpProfile.HttpRequestHeaders.Select(H => Convert.ToBase64String(Common.CovenantEncoding.GetBytes(H.Value))))))
+                            .Replace("{{REPLACE_PROFILE_HTTP_URLS}}", this.FormatForVerbatimString(string.Join(",", httpProfile.HttpUrls.Select(H => Convert.ToBase64String(Common.CovenantEncoding.GetBytes(H))))))
+                            .Replace("{{REPLACE_PROFILE_HTTP_GET_RESPONSE}}", this.FormatForVerbatimString(httpProfile.HttpGetResponse.Replace("{DATA}", "{0}").Replace("{GUID}", "{1}")))
+                            .Replace("{{REPLACE_PROFILE_HTTP_POST_REQUEST}}", this.FormatForVerbatimString(httpProfile.HttpPostRequest.Replace("{DATA}", "{0}").Replace("{GUID}", "{1}")))
+                            .Replace("{{REPLACE_PROFILE_HTTP_POST_RESPONSE}}", this.FormatForVerbatimString(httpProfile.HttpPostResponse.Replace("{DATA}", "{0}").Replace("{GUID}", "{1}")))
+                            .Replace("{{REPLACE_VALIDATE_CERT}}", grunt.ValidateCert ? "true" : "false")
+                            .Replace("{{REPLACE_USE_CERT_PINNING}}", grunt.UseCertPinning ? "true" : "false")
+                            .Replace("{{REPLACE_PIPE_NAME}}", grunt.SMBPipeName)
+                            .Replace("{{REPLACE_COVENANT_URIS}}", this.FormatForVerbatimString(string.Join(",", httpListener.Urls)))
+                            .Replace("{{REPLACE_COVENANT_CERT_HASH}}", this.FormatForVerbatimString(httpListener.UseSSL ? httpListener.SSLCertHash : ""))
+                            .Replace("{{REPLACE_GRUNT_GUID}}", this.FormatForVerbatimString(grunt.OriginalServerGuid))
+                            .Replace("{{REPLACE_DELAY}}", this.FormatForVerbatimString(grunt.Delay.ToString()))
+                            .Replace("{{REPLACE_JITTER_PERCENT}}", this.FormatForVerbatimString(grunt.JitterPercent.ToString()))
+                            .Replace("{{REPLACE_CONNECT_ATTEMPTS}}", this.FormatForVerbatimString(grunt.ConnectAttempts.ToString()))
+                            .Replace("{{REPLACE_KILL_DATE}}", this.FormatForVerbatimString(grunt.KillDate.ToBinary().ToString()))
+                            .Replace("{{REPLACE_GRUNT_SHARED_SECRET_PASSWORD}}", this.FormatForVerbatimString(grunt.GruntSharedSecretPassword));
+                    }
+                    else if (template.CommType == CommunicationType.SMB)
+                    {
+                        return CodeTemplate
+                            .Replace("// {{REPLACE_PROFILE_MESSAGE_TRANSFORM}}", profile.MessageTransform)
+                            .Replace("{{REPLACE_PROFILE_READ_FORMAT}}", this.FormatForVerbatimString(httpProfile.HttpGetResponse.Replace("{DATA}", "{0}").Replace("{GUID}", "{1}")))
+                            .Replace("{{REPLACE_PROFILE_WRITE_FORMAT}}", this.FormatForVerbatimString(httpProfile.HttpPostRequest.Replace("{DATA}", "{0}").Replace("{GUID}", "{1}")))
+                            .Replace("{{REPLACE_PIPE_NAME}}", grunt.SMBPipeName)
+                            .Replace("{{REPLACE_GRUNT_GUID}}", this.FormatForVerbatimString(grunt.OriginalServerGuid))
+                            .Replace("{{REPLACE_DELAY}}", this.FormatForVerbatimString(grunt.Delay.ToString()))
+                            .Replace("{{REPLACE_JITTER_PERCENT}}", this.FormatForVerbatimString(grunt.JitterPercent.ToString()))
+                            .Replace("{{REPLACE_CONNECT_ATTEMPTS}}", this.FormatForVerbatimString(grunt.ConnectAttempts.ToString()))
+                            .Replace("{{REPLACE_KILL_DATE}}", this.FormatForVerbatimString(grunt.KillDate.ToBinary().ToString()))
+                            .Replace("{{REPLACE_GRUNT_SHARED_SECRET_PASSWORD}}", this.FormatForVerbatimString(grunt.GruntSharedSecretPassword));
+                    }
+                    return CodeTemplate;
                 case ProfileType.Bridge:
                     BridgeProfile bridgeProfile = (BridgeProfile)profile;
                     BridgeListener bridgeListener = (BridgeListener)listener;
                     return CodeTemplate
                         .Replace("// {{REPLACE_PROFILE_MESSAGE_TRANSFORM}}", bridgeProfile.MessageTransform)
-                        .Replace("{{REPLACE_PROFILE_WRITE_FORMAT}}", bridgeProfile.WriteFormat.Replace("{GUID}", "{0}").Replace("{DATA}", "{1}"))
-                        .Replace("{{REPLACE_PROFILE_READ_FORMAT}}", bridgeProfile.ReadFormat.Replace("{GUID}", "{0}").Replace("{DATA}", "{1}"))
+                        .Replace("// {{REPLACE_BRIDGE_MESSENGER_CODE}}", bridgeProfile.BridgeMessengerCode)
+                        .Replace("{{REPLACE_PROFILE_WRITE_FORMAT}}", bridgeProfile.WriteFormat.Replace("{DATA}", "{0}").Replace("{GUID}", "{1}"))
+                        .Replace("{{REPLACE_PROFILE_READ_FORMAT}}", bridgeProfile.ReadFormat.Replace("{DATA}", "{0}").Replace("{GUID}", "{1}"))
                         .Replace("{{REPLACE_PIPE_NAME}}", grunt.SMBPipeName)
                         .Replace("{{REPLACE_COVENANT_URI}}", this.FormatForVerbatimString(bridgeListener.ConnectAddresses[0] + ":" + bridgeListener.ConnectPort))
                         .Replace("{{REPLACE_GRUNT_GUID}}", this.FormatForVerbatimString(grunt.OriginalServerGuid))
@@ -1485,6 +1542,8 @@ namespace Covenant.Models
         {
             return await this.GruntCommands
                 .Include(GC => GC.User)
+                .Include(GC => GC.GruntTasking)
+                    .ThenInclude(GT => GT.GruntTask)
                 .ToListAsync();
         }
 
@@ -1493,6 +1552,8 @@ namespace Covenant.Models
             return await this.GruntCommands
                 .Where(GC => GC.GruntId == gruntId)
                 .Include(GC => GC.User)
+                .Include(GC => GC.GruntTasking)
+                    .ThenInclude(GT => GT.GruntTask)
                 .ToListAsync();
         }
 
@@ -1501,6 +1562,9 @@ namespace Covenant.Models
             GruntCommand command = await this.GruntCommands
                 .Where(GC => GC.Id == id)
                 .Include(GC => GC.User)
+                .Include(GC => GC.GruntTasking)
+                    .ThenInclude(GT => GT.GruntTask)
+                .Include(GC => GC.CommandOutput)
                 .FirstOrDefaultAsync();
             if (command == null)
             {
@@ -1814,6 +1878,24 @@ namespace Covenant.Models
 
                 parameters.Insert(3, Directory);
             }
+            else if (tasking.GruntTask.Name.Equals("powershellremotinggrunt", StringComparison.OrdinalIgnoreCase))
+            {
+                Launcher l = await this.Launchers.FirstOrDefaultAsync(L => L.Name.Equals(parameters[1], StringComparison.OrdinalIgnoreCase));
+                if (l == null || l.LauncherString == null || l.LauncherString.Trim() == "")
+                {
+                    throw new ControllerNotFoundException($"NotFound - Launcher with name: {parameters[1]}");
+                }
+                // Add .exe extension if needed
+                List<string> split = l.LauncherString.Split(" ").ToList();
+                parameters[1] = split.FirstOrDefault();
+                if (!parameters[1].EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) { parameters[1] += ".exe"; }
+                // Add Directory
+                string Directory = "C:\\Windows\\System32\\";
+                if (parameters[1].Equals("powershell.exe", StringComparison.OrdinalIgnoreCase)) { Directory += "WindowsPowerShell\\v1.0\\"; }
+                else if (parameters[1].Equals("wmic.exe", StringComparison.OrdinalIgnoreCase)) { Directory += "wbem\\"; }
+                if (!parameters[1].StartsWith("C:\\", StringComparison.OrdinalIgnoreCase)) { parameters[1] = Directory + parameters[1]; }
+                parameters[1] = parameters[1] + " " + string.Join(" ", split.Skip(1).ToList());
+            }
             else if (tasking.GruntTask.Name.Equals("bypassuacgrunt", StringComparison.OrdinalIgnoreCase))
             {
                 Launcher l = await this.Launchers.FirstOrDefaultAsync(L => L.Name.Equals(parameters[0], StringComparison.OrdinalIgnoreCase));
@@ -1894,7 +1976,7 @@ public static class Task
             }
             await this.GruntTaskings.AddAsync(tasking);
             await this.SaveChangesAsync();
-            Grunt parent = await this.GetParentGrunt(tasking.Grunt);
+            Grunt parent = (await this.GetParentGrunt(tasking.Grunt)) ?? tasking.Grunt;
             parent.Listener = await this.GetListener(parent.ListenerId);
             await GruntHubProxy.NotifyListener(_grunthub, parent);
             return tasking;
@@ -1942,9 +2024,9 @@ public static class Task
             if ((originalStatus == GruntTaskingStatus.Tasked || originalStatus == GruntTaskingStatus.Progressed) &&
                 newStatus == GruntTaskingStatus.Completed)
             {
-                if (tasking.Type == GruntTaskingType.Kill)
+                if (tasking.Type == GruntTaskingType.Exit)
                 {
-                    grunt.Status = GruntStatus.Killed;
+                    grunt.Status = GruntStatus.Exited;
                 }
                 else if (tasking.Type == GruntTaskingType.SetOption && tasking.Parameters.Count >= 2)
                 {
@@ -2488,6 +2570,16 @@ public static class Task
             }
             return type;
         }
+
+        public async Task<ListenerType> GetListenerTypeByName(string name)
+        {
+            ListenerType type = await this.ListenerTypes.FirstOrDefaultAsync(LT => LT.Name == name);
+            if (type == null)
+            {
+                throw new ControllerNotFoundException($"NotFound - ListenerType with name: {name}");
+            }
+            return type;
+        }
         #endregion
 
         #region Profile Actions
@@ -2630,6 +2722,7 @@ public static class Task
             matchingProfile.Description = profile.Description;
             matchingProfile.ReadFormat = profile.ReadFormat;
             matchingProfile.WriteFormat = profile.WriteFormat;
+            matchingProfile.BridgeMessengerCode = profile.BridgeMessengerCode;
             if (matchingProfile.MessageTransform != profile.MessageTransform)
             {
                 if (!await this.IsAdmin(currentUser))
@@ -2649,6 +2742,7 @@ public static class Task
         {
             return await this.Listeners
                 .Include(L => L.ListenerType)
+                .Include(L => L.Profile)
                 .ToListAsync();
         }
 
@@ -2656,6 +2750,7 @@ public static class Task
         {
             Listener listener = await this.Listeners
                 .Include(L => L.ListenerType)
+                .Include(L => L.Profile)
                 .FirstOrDefaultAsync(L => L.Id == listenerId);
             if (listener == null)
             {
@@ -2693,15 +2788,12 @@ public static class Task
             else if (matchingListener.Status != ListenerStatus.Active && listener.Status == ListenerStatus.Active)
             {
                 matchingListener.StartTime = DateTime.UtcNow;
-                HttpProfile profile = await this.GetHttpProfile(matchingListener.ProfileId);
-                if (profile == null)
-                {
-                    throw new ControllerNotFoundException($"NotFound - HttpProfile with id: {matchingListener.ProfileId}");
-                }
+                Profile profile = await this.GetProfile(matchingListener.ProfileId);
                 CancellationTokenSource listenerCancellationToken = null;
                 try
                 {
                     listenerCancellationToken = matchingListener.Start();
+                    matchingListener.Status = ListenerStatus.Active;
                 }
                 catch(ListenerStartException e)
                 {
@@ -2717,7 +2809,6 @@ public static class Task
                 });
                 await EventHubProxy.SendEvent(_eventhub, listenerEvent);
             }
-
             this.Listeners.Update(matchingListener);
             await this.SaveChangesAsync();
             return await this.GetListener(matchingListener.Id);
@@ -2761,6 +2852,7 @@ public static class Task
         {
             return await this.Listeners
                 .Include(L => L.ListenerType)
+                .Include(L => L.Profile)
                 .Where(L => L.ListenerType.Name == "HTTP")
                 .Select(L => (HttpListener)L)
                 .ToListAsync();
@@ -2770,6 +2862,7 @@ public static class Task
         {
             return await this.Listeners
                 .Include(L => L.ListenerType)
+                .Include(L => L.Profile)
                 .Where(L => L.ListenerType.Name == "Bridge")
                 .Select(L => (BridgeListener)L)
                 .ToListAsync();
@@ -3168,6 +3261,12 @@ public static class Task
             Listener listener = await this.GetListener(launcher.ListenerId);
             ImplantTemplate template = await this.GetImplantTemplate(launcher.ImplantTemplateId);
             Profile profile = await this.GetProfile(listener.ProfileId);
+
+            if (!template.CompatibleListenerTypes.Select(LT => LT.Id).Contains(listener.ListenerTypeId))
+            {
+                throw new ControllerBadRequestException($"BadRequest - ListenerType not compatible with chosen ImplantTemplate");
+            }
+
             Grunt grunt = new Grunt
             {
                 ListenerId = listener.Id,
@@ -3188,7 +3287,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
@@ -3265,7 +3364,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
@@ -3342,7 +3441,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
@@ -3419,7 +3518,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
@@ -3498,7 +3597,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
@@ -3578,7 +3677,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
@@ -3660,7 +3759,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
@@ -3740,7 +3839,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
@@ -3820,7 +3919,7 @@ public static class Task
             await this.SaveChangesAsync();
 
             launcher.GetLauncher(
-                this.GruntTemplateReplace(template.StagerCode, grunt, listener, profile),
+                this.GruntTemplateReplace(template.StagerCode, template, grunt, listener, profile),
                 CompileGruntCode(template.StagerCode, template, grunt, listener, profile, launcher.OutputKind, launcher.CompressStager),
                 grunt,
                 template
